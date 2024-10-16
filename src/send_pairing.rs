@@ -47,7 +47,7 @@ pub async fn send_pairing(
                 .flatten()
                 .map(|u| u.id)
                 .collect::<Vec<_>>();
-            ctx.defer_ephemeral().await;
+            let _ = ctx.defer_ephemeral().await;
             if reactions.len() <= 1 {
                 format!(
                     "Need at least two reactions to create a pairing (message has {} reaction{}).",
