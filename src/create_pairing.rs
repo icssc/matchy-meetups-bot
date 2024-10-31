@@ -1,9 +1,9 @@
 use crate::helpers::log_error;
 use crate::pair::pair;
-use crate::types::{Context, Error};
+use crate::types::Context;
+use anyhow::Result;
 use itertools::Itertools;
 use poise::futures_util::future::join_all;
-
 /// Generate a potential pairing of users who have reacted to a message
 #[poise::command(
     slash_command,
@@ -18,8 +18,7 @@ pub async fn create_pairing(
     ctx: Context<'_>,
     #[description = "Link to a message with reactions -- a pairing will be made between users who reacted."]
     message_link: String,
-) -> Result<(), Error> {
-    println!("{message_link}");
+) -> Result<()> {
     let message_id = message_link
         .split("/")
         .last()

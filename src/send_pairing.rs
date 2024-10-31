@@ -1,7 +1,8 @@
 use crate::log_error;
 use crate::pair::pair;
-use crate::types::{Context, Error};
-use poise::futures_util::future::join_all;
+use crate::types::Context;
+use anyhow::Error;
+use poise::futures_util::future::{join_all, try_join_all};
 
 /// Send a message to each member of the pairing.
 #[poise::command(
@@ -60,38 +61,30 @@ pub async fn send_pairing(
                 for pair in pairs {
                     for user in &pair {
                         let pairing: Vec<_> = pair.iter().filter(|u| *u != user).collect();
-                        let pairing_str = if pairing.len() == 1 {
-                            // TODO: parallelize these async requests and check API ratelimiting
-                            // TODO: the display name should be whatever the server
-                            let pairing1 = pairing[0].to_user(&ctx).await?;
-                            format!(
-                                "<@{}> ({})",
-                                pairing1.id,
-                                pairing1.global_name.unwrap_or(pairing1.name)
-                            )
-                        } else {
-                            let pairing1 = pairing[0].to_user(&ctx).await?;
-                            let pairing2 = pairing[1].to_user(&ctx).await?;
-                            format!(
-                                "<@{}> ({}) and <${}> ({})",
-                                pairing1.id,
-                                pairing1.global_name.unwrap_or(pairing1.name),
-                                pairing2.id,
-                                pairing2.global_name.unwrap_or(pairing2.name)
-                            )
-                        };
+                        let pairing_str = try_join_all(pairing.iter().map(|uid| {
+                            return async {
+                                let u = uid.to_user(&ctx).await?;
+                                Ok::<String, Error>(format!(
+                                    "<@{}> ({})",
+                                    u.id,
+                                    u.global_name.unwrap_or(u.name)
+                                ))
+                            };
+                        }))
+                        .await?
+                        .join(" and ");
 
                         let message_str = format!("Hey, thanks for joining ICSSC's Matchy Meetups. Your pairing \
-                             for this round is with {pairing_str}! Please take this opportunity to reach out to them and \
+                             for this round is here! Please take this opportunity to reach out to them and \
                              schedule some time to hang out in the next two weeks. \
                              Don't forget to send pics to https://discord.com/channels/760915616793755669/1199228930222194779 \
-                             while you're there, and I hope you enjoy!\n\n\
-                             \t\t\t \\- Jeffrey \n\n\
-                             _(responses here will not be seen; please message Jeffrey directly if there are any issues)_");
+                             while you're there, and I hope you enjoy!\n\
+                             \t\t\t\t\t\t\t \\- Jeffrey \n\n\n\
+                             **Your pairing is with:** {pairing_str}\n\n\
+                             _(responses here will not be seen; please message Jeffrey directly if you have any questions)_");
                         let _ = user
                             .create_dm_channel(&ctx)
-                            .await
-                            .unwrap()
+                            .await?
                             .say(&ctx, message_str)
                             .await;
 
