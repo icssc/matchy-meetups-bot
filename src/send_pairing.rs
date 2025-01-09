@@ -1,101 +1,106 @@
-use crate::log_error;
-use crate::pair::pair;
+use crate::helpers::{checksum_pairing, format_pairs, hash_seed, pair_members};
 use crate::types::Context;
-use anyhow::Error;
-use poise::futures_util::future::{join_all, try_join_all};
+use crate::{log_error, ROLE_NAME};
+use anyhow::{bail, ensure, Context as _, Error, Result};
+use poise::futures_util::future::try_join_all;
+use serenity::all::GuildChannel;
+
+async fn handle_send_pairing(
+    ctx: Context<'_>,
+    key: String,
+    channel: GuildChannel,
+) -> Result<String> {
+    println!("{} used /send_pairing", ctx.author());
+
+    let guild = ctx
+        .guild()
+        .context("This command must be called from a guild (server).")?
+        .clone();
+    let Some(role) = guild.role_by_name(ROLE_NAME) else {
+        bail!("Could not find a role with name `{ROLE_NAME}`");
+    };
+    let Some((seed_str, checksum)) = key.rsplit_once("_") else {
+        bail!("Invalid key. Please make sure you only use keys returned by /create_pairing.")
+    };
+
+    let seed = hash_seed(&seed_str);
+
+    let pairs = pair_members(ctx, seed).await?;
+    let pairs_str = format_pairs(&pairs);
+    ensure!(
+        checksum_pairing(seed, &pairs) == checksum,
+        "Key mismatch. This can happen if you typed the key incorrectly, or the members with the \
+        matchy meetups role have changed since this key was generated. Please call /create_pairing \
+        again to get a new key."
+    );
+
+    let mut messages_sent = 0;
+
+    for pair in pairs {
+        for user in &pair {
+            let pairing: Vec<_> = pair.iter().filter(|u| *u != user).collect();
+            let pairing_str = try_join_all(pairing.iter().map(|uid| {
+                return async {
+                    let u = uid.to_user(&ctx).await?;
+                    Ok::<String, Error>(format!(
+                        "<@{}> ({})",
+                        u.id,
+                        u.global_name.unwrap_or(u.name)
+                    ))
+                };
+            }))
+            .await
+            .context("Unable to fetch names for user ids")?
+            .join(" and ");
+
+            let message_str = format!("Hey, thanks for joining ICSSC's Matchy Meetups. Your pairing \
+                 for this round is here! Please take this opportunity to reach out to them and \
+                 schedule some time to hang out in the next two weeks. \
+                 Don't forget to send pics to https://discord.com/channels/760915616793755669/1199228930222194779 \
+                 while you're there, and I hope you enjoy!\n\
+                 \t\t\t\t\t\t\t \\- Jeffrey \n\n\n\
+                 **Your pairing is with:** {pairing_str}\n\n\
+                 _(responses here will not be seen; please message Jeffrey directly if you have any questions)_");
+            let _ = user
+                .create_dm_channel(&ctx)
+                .await?
+                .say(&ctx, message_str)
+                .await;
+
+            messages_sent += 1;
+        }
+    }
+    println!("Messaged {messages_sent} users.");
+    channel
+        .say(
+            &ctx,
+            format!(
+                "Hey <@&{}>, here are the pairings for the next round of matchy meetups!\n\n{}",
+                role.id, pairs_str
+            ),
+        )
+        .await?;
+    Ok(format!("Successfully messaged {messages_sent} users."))
+}
 
 /// Send a message to each member of the pairing.
 #[poise::command(
     slash_command,
     track_edits,
     hide_in_help,
-    ephemeral,
     required_permissions = "ADMINISTRATOR",
     on_error = "log_error"
 )]
 pub async fn send_pairing(
     ctx: Context<'_>,
-    #[description = "Link to a message with reactions -- a pairing will be made between users who reacted."]
-    message_link: String,
-    #[description = "Temproary confirmation key"] temporary_confirm: Option<String>,
+    #[description = "A pairing key returned by /create_pairing."] key: String,
+    #[description = "Channel to send a summary message with all the pairings in"]
+    summary_channel: GuildChannel,
 ) -> Result<(), Error> {
-    // TODO: remove this (once we can validate that we don't resend pairings)
-    //  a better architecture is create_pairing() generates a pairing ID
-    //  send_pairing sends the ID and checks that it hasn't been sent before
-    if temporary_confirm.filter(|s| *s == "confirmiamjeffrey") == None {
-        ctx.say("Danger! This command will send messages to each paired member! Pass in the confirm key to confirm.")
-            .await?;
-        return Ok(());
-    }
-    println!("{message_link}");
-    let message_id = message_link
-        .split("/")
-        .last()
-        .unwrap()
-        .trim()
-        .parse::<u64>();
-    let resp = match message_id {
-        Ok(id) => {
-            let message = ctx.channel_id().message(&ctx, id).await?;
-
-            let reactions =
-                join_all(message.reactions.iter().map(|r| {
-                    message.reaction_users(&ctx, r.reaction_type.clone(), Some(100), None)
-                }))
-                .await
-                .iter()
-                .filter_map(|r| r.as_ref().ok())
-                .flatten()
-                .map(|u| u.id)
-                .collect::<Vec<_>>();
-            let _ = ctx.defer_ephemeral().await;
-            if reactions.len() <= 1 {
-                format!(
-                    "Need at least two reactions to create a pairing (message has {} reaction{}).",
-                    reactions.len(),
-                    if reactions.len() % 2 == 0 { "" } else { "s" }
-                )
-            } else {
-                let mut messages_sent = 0;
-                let pairs = pair(reactions);
-                for pair in pairs {
-                    for user in &pair {
-                        let pairing: Vec<_> = pair.iter().filter(|u| *u != user).collect();
-                        let pairing_str = try_join_all(pairing.iter().map(|uid| {
-                            return async {
-                                let u = uid.to_user(&ctx).await?;
-                                Ok::<String, Error>(format!(
-                                    "<@{}> ({})",
-                                    u.id,
-                                    u.global_name.unwrap_or(u.name)
-                                ))
-                            };
-                        }))
-                        .await?
-                        .join(" and ");
-
-                        let message_str = format!("Hey, thanks for joining ICSSC's Matchy Meetups. Your pairing \
-                             for this round is here! Please take this opportunity to reach out to them and \
-                             schedule some time to hang out in the next two weeks. \
-                             Don't forget to send pics to https://discord.com/channels/760915616793755669/1199228930222194779 \
-                             while you're there, and I hope you enjoy!\n\
-                             \t\t\t\t\t\t\t \\- Jeffrey \n\n\n\
-                             **Your pairing is with:** {pairing_str}\n\n\
-                             _(responses here will not be seen; please message Jeffrey directly if you have any questions)_");
-                        let _ = user
-                            .create_dm_channel(&ctx)
-                            .await?
-                            .say(&ctx, message_str)
-                            .await;
-
-                        messages_sent += 1;
-                    }
-                }
-                format!("Successfully messaged {messages_sent} users.")
-            }
-        }
-        Err(_) => "Error: unable to parse link.".to_string(),
-    };
+    ctx.defer_ephemeral().await?;
+    let resp = handle_send_pairing(ctx, key, summary_channel)
+        .await
+        .unwrap_or_else(|e| format!("Error: {}", e));
     println!("{resp}");
     ctx.say(resp).await?;
     Ok(())

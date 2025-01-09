@@ -10,6 +10,8 @@ use crate::send_pairing::send_pairing;
 use poise::serenity_prelude as serenity;
 use std::sync::Arc;
 
+pub const ROLE_NAME: &str = "matchy-meetups";
+
 #[tokio::main]
 async fn main() {
     let token = std::env::var("DISCORD_TOKEN").expect("missing DISCORD_TOKEN");

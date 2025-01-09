@@ -1,9 +1,22 @@
-use crate::helpers::log_error;
-use crate::pair::pair;
+use crate::helpers::{format_pairs, hash_seed, log_error, pair_members};
 use crate::types::Context;
 use anyhow::Result;
-use itertools::Itertools;
-use poise::futures_util::future::join_all;
+
+async fn handle_create_pairing(ctx: Context<'_>, seed_str: String) -> Result<String> {
+    let seed = hash_seed(&seed_str);
+
+    let pairs = pair_members(ctx, seed).await?;
+    let pairs_str = format_pairs(&pairs);
+    let key = format!(
+        "{}_{}",
+        seed_str,
+        crate::helpers::checksum_pairing(seed, &pairs)
+    );
+    Ok(format!(
+        "{pairs_str}\nTo send this pairing, use this key: `{key}`"
+    ))
+}
+
 /// Generate a potential pairing of users who have reacted to a message
 #[poise::command(
     slash_command,
@@ -16,47 +29,12 @@ use poise::futures_util::future::join_all;
 )]
 pub async fn create_pairing(
     ctx: Context<'_>,
-    #[description = "Link to a message with reactions -- a pairing will be made between users who reacted."]
-    message_link: String,
+    #[description = "A seed to use for the generated pairing (for example, use the current date)."]
+    seed: String,
 ) -> Result<()> {
-    let message_id = message_link
-        .split("/")
-        .last()
-        .unwrap()
-        .trim()
-        .parse::<u64>();
-    let resp = match message_id {
-        Ok(id) => {
-            let message = ctx.channel_id().message(&ctx, id).await?;
-
-            let reactions =
-                join_all(message.reactions.iter().map(|r| {
-                    message.reaction_users(&ctx, r.reaction_type.clone(), Some(100), None)
-                }))
-                .await
-                .iter()
-                .filter_map(|r| r.as_ref().ok())
-                .flatten()
-                .map(|u| u.id)
-                .collect::<Vec<_>>();
-            if reactions.len() <= 1 {
-                format!(
-                    "Need at least two reactions to create a pairing (message has {} reaction{}).",
-                    reactions.len(),
-                    if reactions.len() % 2 == 0 { "" } else { "s" }
-                )
-            } else {
-                let pairs = pair(reactions);
-                let pairs_str = pairs
-                    .iter()
-                    .map(|p| p.iter().map(|u| format!("<@{u}>")).join(", "))
-                    .collect::<Vec<_>>()
-                    .join("\n");
-                format!("{}", pairs_str)
-            }
-        }
-        Err(_) => "Error: unable to parse link.".to_string(),
-    };
+    let resp = handle_create_pairing(ctx, seed)
+        .await
+        .unwrap_or_else(|e| format!("Error: {}", e));
     println!("{resp}");
     ctx.say(resp).await?;
     Ok(())
