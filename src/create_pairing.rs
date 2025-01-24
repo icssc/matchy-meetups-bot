@@ -12,8 +12,9 @@ async fn handle_create_pairing(ctx: Context<'_>, seed_str: String) -> Result<Str
         seed_str,
         crate::helpers::checksum_pairing(seed, &pairs)
     );
+    let num_members: usize = pairs.iter().map(|p| p.len()).sum();
     Ok(format!(
-        "{pairs_str}\nTo send this pairing, use this key: `{key}`"
+        "{pairs_str}\nTotal paired members: {num_members}\nTo send this pairing, use this key: `{key}`"
     ))
 }
 
@@ -32,6 +33,7 @@ pub async fn create_pairing(
     #[description = "A seed to use for the generated pairing (for example, use the current date)."]
     seed: String,
 ) -> Result<()> {
+    ctx.defer_ephemeral().await?;
     let resp = handle_create_pairing(ctx, seed)
         .await
         .unwrap_or_else(|e| format!("Error: {}", e));

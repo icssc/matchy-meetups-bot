@@ -5,6 +5,7 @@ use anyhow::{bail, ensure, Context as _, Error, Result};
 use poise::futures_util::future::try_join_all;
 use serenity::all::GuildChannel;
 
+/// Run the /send_pairing command
 async fn handle_send_pairing(
     ctx: Context<'_>,
     key: String,
@@ -33,6 +34,16 @@ async fn handle_send_pairing(
         matchy meetups role have changed since this key was generated. Please call /create_pairing \
         again to get a new key."
     );
+
+    channel
+        .say(
+            &ctx,
+            format!(
+                "Hey <@&{}>, here are the pairings for the next round of matchy meetups!\n\n{}",
+                role.id, pairs_str
+            ),
+        )
+        .await?;
 
     let mut messages_sent = 0;
 
@@ -71,15 +82,6 @@ async fn handle_send_pairing(
         }
     }
     println!("Messaged {messages_sent} users.");
-    channel
-        .say(
-            &ctx,
-            format!(
-                "Hey <@&{}>, here are the pairings for the next round of matchy meetups!\n\n{}",
-                role.id, pairs_str
-            ),
-        )
-        .await?;
     Ok(format!("Successfully messaged {messages_sent} users."))
 }
 
@@ -97,7 +99,7 @@ pub async fn send_pairing(
     #[description = "Channel to send a summary message with all the pairings in"]
     summary_channel: GuildChannel,
 ) -> Result<(), Error> {
-    ctx.defer_ephemeral().await?;
+    ctx.defer().await?;
     let resp = handle_send_pairing(ctx, key, summary_channel)
         .await
         .unwrap_or_else(|e| format!("Error: {}", e));
