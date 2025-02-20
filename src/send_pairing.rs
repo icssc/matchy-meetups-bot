@@ -28,7 +28,7 @@ async fn handle_send_pairing(ctx: Context<'_>, key: String) -> Result<String> {
         bail!("Could not find notification channel");
     };
     let Some(history_channel) = find_channel(&ctx, guild.id, HISTORY_CHANNEL_NAME).await? else {
-        bail!("Could not find notification channel");
+        bail!("Could not find history channel");
     };
 
     let seed = hash_seed(&seed_str);

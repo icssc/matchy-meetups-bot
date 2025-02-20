@@ -77,7 +77,7 @@ pub fn graph_pair<T: Hash + Eq + Copy>(
         .collect();
 
     // this assumption is used when iterating over matchings in add_remainder
-    ensure!(matched.is_empty(), "Matching was unexpectedly empty");
+    ensure!(!matched.is_empty(), "Matching was unexpectedly empty");
 
     let (imperfect_match_pairs, remainder) = pair_unmatched(&graph, &matching);
 
