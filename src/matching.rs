@@ -22,7 +22,7 @@ fn shuffled<T>(mut vec: Vec<T>, seed: u64) -> Vec<T> {
 /// Creates "pairs" from the vector (up to one triple is created if there is not an even number).
 /// Each pair is represented as a smaller vector
 /// within the larger returned vector.
-pub fn random_pair<T: Clone>(mut vec: Vec<T>, seed: u64) -> Pairing<T> {
+pub fn random_pair<T: Clone>(vec: Vec<T>, seed: u64) -> Pairing<T> {
     if vec.len() <= 1 {
         panic!("Cannot pair with <= 1 elements.")
     }
@@ -56,7 +56,7 @@ impl ConstraintEdge {
 /// Creates "pairs" from the vector (Some triples may be created if necessary).
 /// Uses a graph matching algorithm.
 pub fn graph_pair<T: Hash + Eq + Copy>(
-    mut vec: Vec<T>,
+    vec: Vec<T>,
     previous_pairings: &Vec<Match<T>>,
     seed: u64,
 ) -> Result<Pairing<T>> {
