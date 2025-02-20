@@ -1,11 +1,12 @@
+mod config;
 mod create_pairing;
+mod discord_helpers;
 mod helpers;
-mod pair;
+mod matching;
 mod send_pairing;
 mod types;
-
 use crate::create_pairing::create_pairing;
-use crate::helpers::log_error;
+use crate::helpers::handle_error;
 use crate::send_pairing::send_pairing;
 use poise::serenity_prelude as serenity;
 use std::sync::Arc;
@@ -19,7 +20,7 @@ async fn main() {
 
     let framework = poise::Framework::builder()
         .options(poise::FrameworkOptions {
-            on_error: |err| Box::pin(log_error(err)),
+            on_error: |err| Box::pin(handle_error(err)),
             prefix_options: poise::PrefixFrameworkOptions {
                 prefix: Some("~".into()),
                 edit_tracker: Some(Arc::new(poise::EditTracker::for_timespan(

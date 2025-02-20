@@ -1,16 +1,15 @@
-use crate::helpers::{checksum_pairing, format_pairs, hash_seed, pair_members};
+use crate::config::{HISTORY_CHANNEL_NAME, NOTIFICATION_CHANNEL_NAME};
+use crate::discord_helpers::{find_channel, match_members};
+use crate::helpers::{checksum_matching, format_pairs, hash_seed, Pairing};
 use crate::types::Context;
-use crate::{log_error, ROLE_NAME};
+use crate::{helpers, ROLE_NAME};
 use anyhow::{bail, ensure, Context as _, Error, Result};
+use helpers::handle_error;
 use poise::futures_util::future::try_join_all;
-use serenity::all::GuildChannel;
+use serenity::all::EditMessage;
 
 /// Run the /send_pairing command
-async fn handle_send_pairing(
-    ctx: Context<'_>,
-    key: String,
-    channel: GuildChannel,
-) -> Result<String> {
+async fn handle_send_pairing(ctx: Context<'_>, key: String) -> Result<String> {
     println!("{} used /send_pairing", ctx.author());
 
     let guild = ctx
@@ -23,25 +22,40 @@ async fn handle_send_pairing(
     let Some((seed_str, checksum)) = key.rsplit_once("_") else {
         bail!("Invalid key. Please make sure you only use keys returned by /create_pairing.")
     };
+    let Some(notification_channel) =
+        find_channel(&ctx, guild.id, NOTIFICATION_CHANNEL_NAME).await?
+    else {
+        bail!("Could not find notification channel");
+    };
+    let Some(history_channel) = find_channel(&ctx, guild.id, HISTORY_CHANNEL_NAME).await? else {
+        bail!("Could not find notification channel");
+    };
 
     let seed = hash_seed(&seed_str);
 
-    let pairs = pair_members(ctx, seed).await?;
+    let Pairing(pairs, _) = match_members(ctx, seed).await?;
     let pairs_str = format_pairs(&pairs);
     ensure!(
-        checksum_pairing(seed, &pairs) == checksum,
+        checksum_matching(seed, &pairs) == checksum,
         "Key mismatch. This can happen if you typed the key incorrectly, or the members with the \
         matchy meetups role have changed since this key was generated. Please call /create_pairing \
         again to get a new key."
     );
 
-    channel
+    let notification_message = notification_channel
         .say(
             &ctx,
             format!(
                 "Hey <@&{}>, here are the pairings for the next round of matchy meetups!\n\n{}",
                 role.id, pairs_str
             ),
+        )
+        .await?;
+    let mut history_message = history_channel.say(&ctx, ".").await?;
+    history_message
+        .edit(
+            &ctx,
+            EditMessage::new().content(format!("{}\n{}", notification_message.link(), pairs_str)),
         )
         .await?;
 
@@ -91,16 +105,14 @@ async fn handle_send_pairing(
     track_edits,
     hide_in_help,
     required_permissions = "ADMINISTRATOR",
-    on_error = "log_error"
+    on_error = "handle_error"
 )]
 pub async fn send_pairing(
     ctx: Context<'_>,
     #[description = "A pairing key returned by /create_pairing."] key: String,
-    #[description = "Channel to send a summary message with all the pairings in"]
-    summary_channel: GuildChannel,
 ) -> Result<(), Error> {
     ctx.defer().await?;
-    let resp = handle_send_pairing(ctx, key, summary_channel)
+    let resp = handle_send_pairing(ctx, key)
         .await
         .unwrap_or_else(|e| format!("Error: {}", e));
     println!("{resp}");
